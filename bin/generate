@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+
+/* eslint-disable */
+
+const path = require('node:path')
+const fs = require('node:fs')
+
+const { devmode, cwd, outdir, tsconfig, root, gluegun } = getAllPaths()
+
+async function run(shouldBuild = () => {return new Promise((resolve) => resolve())}) {
+    if (process.cwd() === 'C:\\Users\\Nathan\\workspace\\generate') await shouldBuild()
+    await require(`${outdir}/cli.js`).run(process.argv)
+}
+
+if (fs.existsSync(devmode)) {
+
+    const ts = require('typescript')
+    const esbuild = require('esbuild')
+
+    run(buildFiles)
+
+    async function buildFiles() {
+        const cpy = (await import('cpy')).default
+
+        fs.rmSync(outdir, {recursive: true, force: true})
+        await transpileFiles()
+        await cpy([
+            'src/**/*.ejs',
+        ],
+        'dist/src'
+        )
+        await cpy([`${gluegun}/core-extensions/**/*.js`,],'dist/core-extensions',{flat: true})
+        await cpy([`${gluegun}/toolbox/**/*.js`,],'dist/toolbox',{flat: true})
+    }
+
+    function getEsbuildOptions() {
+
+        const alias = require('esbuild-plugin-alias')
+
+        const esbuildOptions = {
+            bundle: true,
+            platform: 'node',
+            minify: false,
+            outdir,
+            format: 'cjs',
+            entryPoints: [...getSourceFiles()],
+            plugins: [
+                alias({
+                    '@components/*': `${root}/src/components`
+                })
+            ],
+            target: 'es6',
+            tsconfig
+        }
+        return esbuildOptions
+    }
+
+    async function transpileFiles() {
+        await esbuild.build({ bundle: '', ...getEsbuildOptions()})
+    }
+
+    function filterFiles(fileNames) {
+        return fileNames.filter((filePath) =>
+            !filePath.includes('.d.ts') &&
+            !filePath.includes('.spec.ts')
+        )
+    }
+
+    function getSourceFiles() {
+        let srcFiles = getTsConfig().fileNames
+        srcFiles = filterFiles(srcFiles)
+        return srcFiles
+    }
+
+    function getTsConfig() {
+        const tsConfigFile = ts.findConfigFile(cwd, ts.sys.fileExists, 'tsconfig.json')
+        if (!tsConfigFile) throw new Error(`file tsconfig.json not found at ${cwd}`)
+
+        const readTsConfigFile = ts.readConfigFile(tsConfigFile, ts.sys.readFile)
+        const parsedToJsonTsConfigFile = ts.parseJsonConfigFileContent(readTsConfigFile, ts.sys, cwd)
+        return parsedToJsonTsConfigFile
+    }
+
+} else {
+    run()
+}
+
+function getAllPaths() {
+    this.paths = {}
+
+    this.paths.root = `${__dirname}/../`
+    this.paths.cwd = process.cwd()
+    this.paths.gluegun = `${this.paths.root}/node_modules/gluegun/build`
+    this.paths.tsconfig = `${this.paths.root}/tsconfig.json`
+    this.paths.outdir = `${this.paths.root}/dist/src`
+    this.paths.devmode = `${this.paths.root}/generator.developermode`
+
+    for (let key in this.paths) {
+        this.paths[key] = path.join(this.paths[key])
+    }
+
+    return {...this.paths}
+}
+
